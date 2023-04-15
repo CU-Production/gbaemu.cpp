@@ -16,6 +16,7 @@ public:
 	GBABIOS bios;
 
 	GBACPU(GameBoyAdvance& bus_);
+    ~GBACPU();
 	void reset();
 	void run();
 

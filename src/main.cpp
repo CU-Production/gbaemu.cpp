@@ -26,10 +26,6 @@ bool argRomGiven;
 std::filesystem::path argRomFilePath;
 bool argBiosGiven;
 std::filesystem::path argBiosFilePath;
-bool recordSound;
-bool argWavGiven;
-std::filesystem::path argWavFilePath;
-bool argUncapFps;
 
 constexpr auto cexprHash(const char *str, std::size_t v = 0) noexcept -> std::size_t {
 	return (*str == 0) ? v : 31 * cexprHash(str + 1) + *str;
@@ -49,10 +45,6 @@ constexpr auto GBA_WIDTH  = 240;
 constexpr auto GBA_HEIGHT = 160;
 
 sg_pass_action pass_action{};
-sg_buffer vbuf{};
-sg_buffer ibuf{};
-sg_pipeline pip{};
-sg_bindings bind{};
 sg_image lcd_texture;
 uint32_t pixel_buffer[GBA_WIDTH * GBA_HEIGHT]; // For RGB565 -> RGB888 convert
 
@@ -97,8 +89,6 @@ sapp_keycode keymap[10] = {
 u16 lastJoypad;
 
 // Audio stuff
-std::vector<i16> wavFileData;
-std::ofstream wavFileStream;
 void audioCallback(float* buffer, int num_frames, int num_channels);
 
 // Everything else
@@ -133,80 +123,12 @@ void init() {
     stm_setup();
     lastFpsPoll = stm_now();
 
-    const float vertices[] = {
-            // positions     uv
-            -1.0, -1.0, 0.0, 0.0, 1.0,
-            1.0,  -1.0, 0.0, 1.0, 1.0,
-            1.0,  1.0,  0.0, 1.0, 0.0,
-            -1.0, 1.0,  0.0, 0.0, 0.0,
-    };
-    sg_buffer_desc vb_desc = {};
-    vb_desc.data = SG_RANGE(vertices);
-    vbuf = sg_make_buffer(&vb_desc);
-
-    const int indices[] = { 0, 1, 2, 0, 2, 3, };
-    sg_buffer_desc ib_desc = {};
-    ib_desc.type = SG_BUFFERTYPE_INDEXBUFFER;
-    ib_desc.data = SG_RANGE(indices);
-    ibuf = sg_make_buffer(&ib_desc);
-
-    sg_shader_desc shd_desc = {};
-    shd_desc.attrs[0].name = "position";
-    shd_desc.attrs[1].name = "texcoord0";
-    shd_desc.vs.source = R"(
-#version 330
-layout(location=0) in vec3 position;
-layout(location=1) in vec2 texcoord0;
-out vec4 color;
-out vec2 uv;
-void main() {
-  gl_Position = vec4(position, 1.0f);
-  uv = texcoord0;
-  color = vec4(uv, 0.0f, 1.0f);
-}
-)";
-    shd_desc.fs.images[0].name = "tex";
-    shd_desc.fs.images[0].image_type = SG_IMAGETYPE_2D;
-    shd_desc.fs.images[0].sampler_type = SG_SAMPLERTYPE_FLOAT;
-    shd_desc.fs.source = R"(
-#version 330
-uniform sampler2D tex;
-in vec4 color;
-in vec2 uv;
-out vec4 frag_color;
-void main() {
-  frag_color = texture(tex, uv);
-  //frag_color = pow(frag_color, vec4(1.0f/2.2f));
-  //frag_color = vec4(uv, 0.0f, 1.0f);
-}
-)";
-
-    sg_image_desc img_desc = {};
-    img_desc.width = GBA_WIDTH;
-    img_desc.height = GBA_HEIGHT;
-    img_desc.label = "nes-texture";
-    img_desc.pixel_format = SG_PIXELFORMAT_RGBA8;
-    img_desc.usage = SG_USAGE_STREAM;
-
-    sg_shader shd = sg_make_shader(&shd_desc);
-
-    sg_pipeline_desc pip_desc = {};
-    pip_desc.shader = shd;
-    pip_desc.layout.attrs[0].format = SG_VERTEXFORMAT_FLOAT3;
-    pip_desc.layout.attrs[1].format = SG_VERTEXFORMAT_FLOAT2;
-    pip_desc.index_type = SG_INDEXTYPE_UINT32;
-    pip = sg_make_pipeline(&pip_desc);
-
-    bind.vertex_buffers[0] = vbuf;
-    bind.index_buffer = ibuf;
-    bind.fs_images[0] = sg_make_image(&img_desc);
-
     sg_color clear_color = sg_color(0.45f, 0.55f, 0.60f, 1.00f);
     pass_action.colors[0] = { .action=SG_ACTION_CLEAR, .value=clear_color };
 
     // Init GBA emucore
     // Create image for main display
-    img_desc = {};
+    sg_image_desc img_desc = {};
     img_desc.width = GBA_WIDTH;
     img_desc.height = GBA_HEIGHT;
     img_desc.num_mipmaps = 1;
@@ -224,50 +146,7 @@ void main() {
 }
 
 void frame() {
-    const double dt = sapp_frame_duration();
-    // processe input
-//    nes->controller1->buttons = controller1;
-//    nes->controller2->buttons = 0;
-
-    // step the NES state forward by 'dt' seconds, or more if in fast-forward
-//    emulate(nes, dt);
-
-//    sg_image_data image_data{};
-//    image_data.subimage[0][0] = { .ptr=nes->ppu->front, .size=(NES_WIDTH * NES_HEIGHT * sizeof(uint32_t)) };
-//    sg_update_image(bind.fs_images[0], image_data);
-
     // GBA emu main loop
-
-//        while (SDL_PollEvent(&event)) {
-//            ImGui_ImplSDL2_ProcessEvent(&event);
-//
-//            if (event.type == SDL_WINDOWEVENT && event.window.event == SDL_WINDOWEVENT_CLOSE && event.window.windowID == SDL_GetWindowID(window))
-//                quit = true;
-//            switch (event.type) {
-//                case SDL_QUIT:
-//                    quit = true;
-//                    break;
-//                case SDL_KEYDOWN:
-//                    if (event.key.keysym.mod & KMOD_CTRL) {
-//                        switch (event.key.keysym.sym) {
-//                            case SDLK_s:
-//                                GBA.save();
-//                                break;
-//                            case SDLK_o:
-//                                if (event.key.keysym.mod & KMOD_SHIFT) {
-//                                    biosFileDialog();
-//                                } else {
-//                                    romFileDialog();
-//                                }
-//                                break;
-//                        }
-//                    }
-//                    break;
-//            }
-//        }
-
-
-
     if (GBA.ppu.updateScreen) {
         for (int y = 0; y < GBA_HEIGHT; y++) {
             for (int x = 0; x < GBA_WIDTH; x++) {
@@ -339,62 +218,46 @@ void frame() {
 }
 
 void cleanup() {
+    GBA.cpu.addThreadEvent(GBACPU::STOP, (u64)0);
+//    emuThread.detach();
+
     simgui_shutdown();
     saudio_shutdown();
     sg_shutdown();
 }
 
+u16 currentJoypad = 0;
 void input(const sapp_event* event) {
-
     // Joypad inputs
-    u16 currentJoypad = 0;
-    switch (event->type) {
-        case SAPP_EVENTTYPE_KEY_DOWN: {
-//            switch (event->key_code) {
-//                case SAPP_KEYCODE_X:         currentJoypad |= 0b0000000001; break;
-//                case SAPP_KEYCODE_Z:         currentJoypad |= 0b0000000010; break;
-//                case SAPP_KEYCODE_BACKSPACE: currentJoypad |= 0b0000000100; break;
-//                case SAPP_KEYCODE_ENTER:     currentJoypad |= 0b0000001000; break;
-//                case SAPP_KEYCODE_RIGHT:     currentJoypad |= 0b0000010000; break;
-//                case SAPP_KEYCODE_LEFT:      currentJoypad |= 0b0000100000; break;
-//                case SAPP_KEYCODE_UP:        currentJoypad |= 0b0001000000; break;
-//                case SAPP_KEYCODE_DOWN:      currentJoypad |= 0b0010000000; break;
-//                case SAPP_KEYCODE_S:         currentJoypad |= 0b0100000000; break;
-//                case SAPP_KEYCODE_A:         currentJoypad |= 0b1000000000; break;
-//                default: break;
-//            }
-            for (int i = 0; i < 10; i++) {
-                if (event->key_code == keymap[i])
-                    currentJoypad |= 1 << i;
-            }
-            break;
+    if (event->type == SAPP_EVENTTYPE_KEY_DOWN) {
+        for (int i = 0; i < 10; i++) {
+            if (event->key_code == keymap[i])
+                currentJoypad |= 1 << i;
         }
-        case SAPP_EVENTTYPE_KEY_UP: {
-//            switch (event->key_code) {
-//                case SAPP_KEYCODE_X:         currentJoypad &= 0b1111111110; break;
-//                case SAPP_KEYCODE_Z:         currentJoypad &= 0b1111111101; break;
-//                case SAPP_KEYCODE_BACKSPACE: currentJoypad &= 0b1111111011; break;
-//                case SAPP_KEYCODE_ENTER:     currentJoypad &= 0b1111110111; break;
-//                case SAPP_KEYCODE_UP:        currentJoypad &= 0b1111101111; break;
-//                case SAPP_KEYCODE_DOWN:      currentJoypad &= 0b1111011111; break;
-//                case SAPP_KEYCODE_LEFT:      currentJoypad &= 0b1110111111; break;
-//                case SAPP_KEYCODE_RIGHT:     currentJoypad &= 0b1101111111; break;
-//                case SAPP_KEYCODE_S:         currentJoypad &= 0b1011111110; break;
-//                case SAPP_KEYCODE_A:         currentJoypad &= 0b0111111101; break;
-//                default: break;
-//            }
-            for (int i = 0; i < 10; i++) {
-                if (event->key_code == keymap[i])
-                    currentJoypad &= (0b1111111111 & 0 << i);
-            }
-            break;
+    } else if (event->type == SAPP_EVENTTYPE_KEY_UP) {
+        for (int i = 0; i < 10; i++) {
+            if (event->key_code == keymap[i])
+                currentJoypad -= 1 << i;
         }
-        default: break;
     }
 
     if (currentJoypad != lastJoypad) {
         GBA.cpu.addThreadEvent(GBACPU::UPDATE_KEYINPUT, ~currentJoypad);
         lastJoypad = currentJoypad;
+    }
+
+    // load rom/bios and save
+    if (event->modifiers & SAPP_MODIFIER_CTRL && event->type == SAPP_EVENTTYPE_KEY_DOWN) {
+        if (event->key_code == SAPP_KEYCODE_S) {
+            GBA.save();
+        }
+        if (event->key_code == SAPP_KEYCODE_O) {
+            if (event->modifiers &  SAPP_MODIFIER_SHIFT) {
+                biosFileDialog();
+            } else {
+                romFileDialog();
+            }
+        }
     }
 
     simgui_handle_event(event);
@@ -407,9 +270,6 @@ int main(int argc, char *argv[]) {
 	argRomGiven = false;
 	argBiosGiven = false;
 	argBiosFilePath = "";
-	recordSound = false;
-	argWavGiven = false;
-	argUncapFps = false;
 	for (int i = 1; i < argc; i++) {
 		switch (cexprHash(argv[i])) {
 		case cexprHash("--rom"):
@@ -427,18 +287,6 @@ int main(int argc, char *argv[]) {
 			}
 			argBiosGiven = true;
 			argBiosFilePath = argv[i];
-			break;
-		case cexprHash("--record"):
-			if (argc == ++i) {
-				printf("Not enough arguments for flag --record\n");
-				return -1;
-			}
-			recordSound = true;
-			argWavGiven = true;
-			argWavFilePath = argv[i];
-			break;
-		case cexprHash("--uncap-fps"):
-			argUncapFps = true;
 			break;
 		default:
 			if (i == 1) {
@@ -476,54 +324,15 @@ int main(int argc, char *argv[]) {
     desc.logger.func = slog_func;
     sapp_run(desc);
 
-    GBA.cpu.addThreadEvent(GBACPU::STOP, (u64)0);
     emuThread.detach();
-
-//    // WAV file
-//    if (argWavGiven) {
-//        struct  __attribute__((__packed__)) {
-//            char riffStr[4] = {'R', 'I', 'F', 'F'};
-//            unsigned int fileSize = 0;
-//            char waveStr[4] = {'W', 'A', 'V', 'E'};
-//            char fmtStr[4] = {'f', 'm', 't', ' '};
-//            unsigned int subchunk1Size = 16;
-//            unsigned short audioFormat = 1;
-//            unsigned short numChannels = 2;
-//            unsigned int sampleRate = audioSpec.freq;
-//            unsigned int byteRate = audioSpec.freq * sizeof(i16) * 2;
-//            unsigned short blockAlign = 4;
-//            unsigned short bitsPerSample = sizeof(i16) * 8;
-//            char dataStr[4] = {'d', 'a', 't', 'a'};
-//            unsigned int subchunk2Size = 0;
-//        } wavHeaderData;
-//        wavFileStream.open(argWavFilePath, std::ios::binary | std::ios::trunc);
-//        wavHeaderData.subchunk2Size = (wavFileData.size() * sizeof(i16));
-//        wavHeaderData.fileSize = sizeof(wavHeaderData) - 8 + wavHeaderData.subchunk2Size;
-//        wavFileStream.write(reinterpret_cast<const char*>(&wavHeaderData), sizeof(wavHeaderData));
-//        wavFileStream.write(reinterpret_cast<const char*>(wavFileData.data()), wavFileData.size() * sizeof(i16));
-//        wavFileStream.close();
-//    }
 
 	return 0;
 }
 
+
 void audioCallback(float* buffer, int num_frames, int num_channels) {
 	GBA.apu.sampleBufferMutex.lock();
-//	if (recordSound) {
-//		wavFileData.insert(wavFileData.end(), GBA.apu.sampleBuffer.begin(), GBA.apu.sampleBuffer.begin() + GBA.apu.sampleBufferIndex);
-//	}
-
-//	memcpy(buffer, &GBA.apu.sampleBuffer, num_frames); // Copy samples to SDL's buffer
-	// If there aren't enough samples, repeat the last one
-//	int realIndex = (GBA.apu.sampleBufferIndex - 2) % 2048;
-//	for (int i = GBA.apu.sampleBufferIndex; i < len / 2; i += 2) {
-//		((u16 *)stream)[i] = GBA.apu.sampleBuffer[realIndex];
-//		((u16 *)stream)[i + 1] = GBA.apu.sampleBuffer[realIndex + 1];
-//	}
-
     for (int i = 0; i < num_frames * num_channels; i++) {
-//        int inS16Int = GBA.apu.sampleBuffer[i];
-//        float res = (inS16Int >= 0x8000) ? -(0x10000 - inS16Int) / float(0x8000) : inS16Int / float(0x7FFF);
         buffer[i] = GBA.apu.sampleBuffer[i] / float(0x7FFF);
     }
     // If there aren't enough samples, repeat the last one
@@ -532,7 +341,6 @@ void audioCallback(float* buffer, int num_frames, int num_channels) {
         buffer[i] = GBA.apu.sampleBuffer[realIndex] / float(0x7FFF);
         buffer[i + 1] = GBA.apu.sampleBuffer[realIndex + 1] / float(0x7FFF);
     }
-
 
 	GBA.apu.sampleBufferIndex = 0;
 	GBA.apu.apuBlock = false;
@@ -546,7 +354,7 @@ void loadRom() {
 	GBA.cpu.addThreadEvent(GBACPU::RESET);
 	GBA.cpu.addThreadEvent(GBACPU::START);
 
-	GBA.cpu.uncapFps = argUncapFps;
+	GBA.cpu.uncapFps = false;
 }
 
 void mainMenuBar() {

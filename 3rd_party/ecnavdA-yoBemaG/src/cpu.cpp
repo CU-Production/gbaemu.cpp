@@ -18,6 +18,12 @@ GBACPU::GBACPU(GameBoyAdvance& bus_) : ARM7TDMI(bus_), bios(*this) {
 	eventQueue = {};
 }
 
+GBACPU::~GBACPU()  {
+    // Simple workaround when exiting with threadQueueMutex locked
+//    threadQueueMutex.lock();
+//    threadQueueMutex.unlock();
+}
+
 void GBACPU::reset() { // Should only be run once rom is loaded and system is ready
 	IE = 0;
 	IF = 0;
