@@ -26,3 +26,13 @@ target_include_directories(gbaemu_cpp PRIVATE
         )
 target_compile_definitions(gbaemu_cpp PRIVATE "BUILD_WITH_PPUDEBUG=0")
 target_link_libraries(gbaemu_cpp ecnavda-yobemag nfd)
+
+if (${CMAKE_SYSTEM_NAME} STREQUAL "Windows")
+    if (MINGW)
+        target_link_libraries(ecnavda-yobemag PRIVATE -lkernel32 -luser32 -lshell32 -lgdi32)
+    endif ()
+elseif (${CMAKE_SYSTEM_NAME} STREQUAL "Darwin")
+    target_link_libraries(ecnavda-yobemag PRIVATE -framework Cocoa -framework QuartzCore -framework OpenGL)
+elseif (${CMAKE_SYSTEM_NAME} STREQUAL "Linux")
+    target_link_libraries(ecnavda-yobemag PRIVATE X11 Xi Xcursor GL dl pthread m)
+endif ()
