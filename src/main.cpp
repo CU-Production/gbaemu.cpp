@@ -32,8 +32,8 @@ constexpr auto cexprHash(const char *str, std::size_t v = 0) noexcept -> std::si
 }
 
 // Create emulator thread
-GameBoyAdvance GBA;
-std::thread emuThread(&GBACPU::run, std::ref(GBA.cpu));
+GameBoyAdvance* GBA;
+std::thread emuThread;
 
 // For fps counter
 int renderThreadFps = 0;
@@ -147,17 +147,17 @@ void init() {
 
 void frame() {
     // GBA emu main loop
-    if (GBA.ppu.updateScreen) {
+    if (GBA->ppu.updateScreen) {
         for (int y = 0; y < GBA_HEIGHT; y++) {
             for (int x = 0; x < GBA_WIDTH; x++) {
-                pixel_buffer[y * GBA_WIDTH + x] = RGB5A1toRGBA8(GBA.ppu.framebuffer[y][x]);
+                pixel_buffer[y * GBA_WIDTH + x] = RGB5A1toRGBA8(GBA->ppu.framebuffer[y][x]);
             }
         }
 
         sg_image_data image_data{};
         image_data.subimage[0][0] = { .ptr=pixel_buffer, .size=(GBA_WIDTH * GBA_HEIGHT * sizeof(uint32_t)) };
         sg_update_image(lcd_texture, image_data);
-        GBA.ppu.updateScreen = false;
+        GBA->ppu.updateScreen = false;
     }
 
     /* Draw ImGui Stuff */
@@ -195,8 +195,8 @@ void frame() {
     if (milliseconds >= 1000) {
         lastFpsPoll = stm_now();
         renderThreadFps = (int)io.Framerate;
-        emuThreadFps = GBA.ppu.frameCounter;
-        GBA.ppu.frameCounter = 0;
+        emuThreadFps = GBA->ppu.frameCounter;
+        GBA->ppu.frameCounter = 0;
     }
 
     // Console Screen
@@ -218,7 +218,7 @@ void frame() {
 }
 
 void cleanup() {
-    GBA.cpu.addThreadEvent(GBACPU::STOP, (u64)0);
+    GBA->cpu.addThreadEvent(GBACPU::STOP, (u64)0);
 //    emuThread.detach();
 
     simgui_shutdown();
@@ -242,14 +242,14 @@ void input(const sapp_event* event) {
     }
 
     if (currentJoypad != lastJoypad) {
-        GBA.cpu.addThreadEvent(GBACPU::UPDATE_KEYINPUT, ~currentJoypad);
+        GBA->cpu.addThreadEvent(GBACPU::UPDATE_KEYINPUT, ~currentJoypad);
         lastJoypad = currentJoypad;
     }
 
     // load rom/bios and save
     if (event->modifiers & SAPP_MODIFIER_CTRL && event->type == SAPP_EVENTTYPE_KEY_DOWN) {
         if (event->key_code == SAPP_KEYCODE_S) {
-            GBA.save();
+            GBA->save();
         }
         if (event->key_code == SAPP_KEYCODE_O) {
             if (event->modifiers &  SAPP_MODIFIER_SHIFT) {
@@ -266,6 +266,9 @@ void input(const sapp_event* event) {
 
 
 int main(int argc, char *argv[]) {
+    GBA = new GameBoyAdvance();
+    emuThread = std::thread(&GBACPU::run, std::ref(GBA->cpu));
+
 	// Parse arguments
 	argRomGiven = false;
 	argBiosGiven = false;
@@ -331,30 +334,30 @@ int main(int argc, char *argv[]) {
 
 
 void audioCallback(float* buffer, int num_frames, int num_channels) {
-	GBA.apu.sampleBufferMutex.lock();
+	GBA->apu.sampleBufferMutex.lock();
     for (int i = 0; i < num_frames * num_channels; i++) {
-        buffer[i] = GBA.apu.sampleBuffer[i] / float(0x7FFF);
+        buffer[i] = GBA->apu.sampleBuffer[i] / float(0x7FFF);
     }
     // If there aren't enough samples, repeat the last one
-    int realIndex = (GBA.apu.sampleBufferIndex - 2) % 2048;
-    for (int i = GBA.apu.sampleBufferIndex; i < num_frames * num_channels / 2; i += 2) {
-        buffer[i] = GBA.apu.sampleBuffer[realIndex] / float(0x7FFF);
-        buffer[i + 1] = GBA.apu.sampleBuffer[realIndex + 1] / float(0x7FFF);
+    int realIndex = (GBA->apu.sampleBufferIndex - 2) % 2048;
+    for (int i = GBA->apu.sampleBufferIndex; i < num_frames * num_channels / 2; i += 2) {
+        buffer[i] = GBA->apu.sampleBuffer[realIndex] / float(0x7FFF);
+        buffer[i + 1] = GBA->apu.sampleBuffer[realIndex + 1] / float(0x7FFF);
     }
 
-	GBA.apu.sampleBufferIndex = 0;
-	GBA.apu.apuBlock = false;
-	GBA.apu.sampleBufferMutex.unlock();
+	GBA->apu.sampleBufferIndex = 0;
+	GBA->apu.apuBlock = false;
+	GBA->apu.sampleBufferMutex.unlock();
 }
 
 void loadRom() {
-	GBA.cpu.addThreadEvent(GBACPU::STOP);
-	GBA.cpu.addThreadEvent(GBACPU::LOAD_BIOS, &argBiosFilePath);
-	GBA.cpu.addThreadEvent(GBACPU::LOAD_ROM, &argRomFilePath);
-	GBA.cpu.addThreadEvent(GBACPU::RESET);
-	GBA.cpu.addThreadEvent(GBACPU::START);
+	GBA->cpu.addThreadEvent(GBACPU::STOP);
+	GBA->cpu.addThreadEvent(GBACPU::LOAD_BIOS, &argBiosFilePath);
+	GBA->cpu.addThreadEvent(GBACPU::LOAD_ROM, &argRomFilePath);
+	GBA->cpu.addThreadEvent(GBACPU::RESET);
+	GBA->cpu.addThreadEvent(GBACPU::START);
 
-	GBA.cpu.uncapFps = false;
+	GBA->cpu.uncapFps = false;
 }
 
 void mainMenuBar() {
@@ -370,7 +373,7 @@ void mainMenuBar() {
 		}
 
 		if (ImGui::MenuItem("Save", "Ctrl+S", false, argRomGiven)) {
-			GBA.save();
+			GBA->save();
 		}
 
 		ImGui::Separator();
@@ -380,26 +383,26 @@ void mainMenuBar() {
 	}
 
 	if (ImGui::BeginMenu("Emulation")) {
-		if (GBA.cpu.running) {
+		if (GBA->cpu.running) {
 			if (ImGui::MenuItem("Pause"))
-				GBA.cpu.addThreadEvent(GBACPU::STOP, (u64)0);
+				GBA->cpu.addThreadEvent(GBACPU::STOP, (u64)0);
 		} else {
 			if (ImGui::MenuItem("Unpause"))
-				GBA.cpu.addThreadEvent(GBACPU::START);
+				GBA->cpu.addThreadEvent(GBACPU::START);
 		}
 		if (ImGui::MenuItem("Reset")) {
-			GBA.cpu.addThreadEvent(GBACPU::RESET);
-			GBA.cpu.addThreadEvent(GBACPU::START);
+			GBA->cpu.addThreadEvent(GBACPU::RESET);
+			GBA->cpu.addThreadEvent(GBACPU::START);
 		}
 
 		ImGui::Separator();
 		if (ImGui::BeginMenu("Audio Channels")) {
-			ImGui::MenuItem("Channel 1", nullptr, &GBA.apu.ch1OverrideEnable);
-			ImGui::MenuItem("Channel 2", nullptr, &GBA.apu.ch2OverrideEnable);
-			ImGui::MenuItem("Channel 3", nullptr, &GBA.apu.ch3OverrideEnable);
-			ImGui::MenuItem("Channel 4", nullptr, &GBA.apu.ch4OverrideEnable);
-			ImGui::MenuItem("Channel A", nullptr, &GBA.apu.chAOverrideEnable);
-			ImGui::MenuItem("Channel B", nullptr, &GBA.apu.chBOverrideEnable);
+			ImGui::MenuItem("Channel 1", nullptr, &GBA->apu.ch1OverrideEnable);
+			ImGui::MenuItem("Channel 2", nullptr, &GBA->apu.ch2OverrideEnable);
+			ImGui::MenuItem("Channel 3", nullptr, &GBA->apu.ch3OverrideEnable);
+			ImGui::MenuItem("Channel 4", nullptr, &GBA->apu.ch4OverrideEnable);
+			ImGui::MenuItem("Channel A", nullptr, &GBA->apu.chAOverrideEnable);
+			ImGui::MenuItem("Channel B", nullptr, &GBA->apu.chBOverrideEnable);
 
 			ImGui::EndMenu();
 		}
@@ -429,7 +432,7 @@ void romInfoWindow() {
 	ImGui::Begin("ROM Info", &showRomInfo);
 
 	std::string saveTypeString;
-	switch (GBA.saveType) {
+	switch (GBA->saveType) {
 	case GameBoyAdvance::UNKNOWN:
 		saveTypeString = "Unknown";
 		break;
@@ -477,54 +480,54 @@ void cpuDebugWindow() {
 	ImGui::Begin("Debug CPU", &showCpuDebug);
 
 	if (ImGui::Button("Reset"))
-		GBA.cpu.addThreadEvent(GBACPU::RESET);
+		GBA->cpu.addThreadEvent(GBACPU::RESET);
 	ImGui::SameLine();
-	if (GBA.cpu.running) {
+	if (GBA->cpu.running) {
 		if (ImGui::Button("Pause"))
-			GBA.cpu.addThreadEvent(GBACPU::STOP, (u64)0);
+			GBA->cpu.addThreadEvent(GBACPU::STOP, (u64)0);
 	} else {
 		if (ImGui::Button("Unpause"))
-			GBA.cpu.addThreadEvent(GBACPU::START);
+			GBA->cpu.addThreadEvent(GBACPU::START);
 	}
 
 	ImGui::Spacing();
 	if (ImGui::Button("Step")) {
 		// Add events the hard way so mutex doesn't have to be unlocked
-		GBA.cpu.threadQueueMutex.lock();
-		GBA.cpu.threadQueue.push(GBACPU::threadEvent{GBACPU::START, 0, nullptr});
-		GBA.cpu.threadQueue.push(GBACPU::threadEvent{GBACPU::STOP, 1, nullptr});
-		GBA.cpu.threadQueueMutex.unlock();
+		GBA->cpu.threadQueueMutex.lock();
+		GBA->cpu.threadQueue.push(GBACPU::threadEvent{GBACPU::START, 0, nullptr});
+		GBA->cpu.threadQueue.push(GBACPU::threadEvent{GBACPU::STOP, 1, nullptr});
+		GBA->cpu.threadQueueMutex.unlock();
 	}
 
 	ImGui::Separator();
-	std::string tmp = disassembler.disassemble(GBA.cpu.reg.R[15] - (GBA.cpu.reg.thumbMode ? 4 : 8), GBA.cpu.pipelineOpcode3, GBA.cpu.reg.thumbMode);
+	std::string tmp = disassembler.disassemble(GBA->cpu.reg.R[15] - (GBA->cpu.reg.thumbMode ? 4 : 8), GBA->cpu.pipelineOpcode3, GBA->cpu.reg.thumbMode);
 	ImGui::Text("Current Opcode:  %s", tmp.c_str());
 	ImGui::Spacing();
-	ImGui::Text("r0:  %08X", GBA.cpu.reg.R[0]);
-	ImGui::Text("r1:  %08X", GBA.cpu.reg.R[1]);
-	ImGui::Text("r2:  %08X", GBA.cpu.reg.R[2]);
-	ImGui::Text("r3:  %08X", GBA.cpu.reg.R[3]);
-	ImGui::Text("r4:  %08X", GBA.cpu.reg.R[4]);
-	ImGui::Text("r5:  %08X", GBA.cpu.reg.R[5]);
-	ImGui::Text("r6:  %08X", GBA.cpu.reg.R[6]);
-	ImGui::Text("r7:  %08X", GBA.cpu.reg.R[7]);
-	ImGui::Text("r8:  %08X", GBA.cpu.reg.R[8]);
-	ImGui::Text("r9:  %08X", GBA.cpu.reg.R[9]);
-	ImGui::Text("r10: %08X", GBA.cpu.reg.R[10]);
-	ImGui::Text("r11: %08X", GBA.cpu.reg.R[11]);
-	ImGui::Text("r12: %08X", GBA.cpu.reg.R[12]);
-	ImGui::Text("r13: %08X", GBA.cpu.reg.R[13]);
-	ImGui::Text("r14: %08X", GBA.cpu.reg.R[14]);
-	ImGui::Text("r15: %08X", GBA.cpu.reg.R[15]);
-	ImGui::Text("CPSR: %08X", GBA.cpu.reg.CPSR);
+	ImGui::Text("r0:  %08X", GBA->cpu.reg.R[0]);
+	ImGui::Text("r1:  %08X", GBA->cpu.reg.R[1]);
+	ImGui::Text("r2:  %08X", GBA->cpu.reg.R[2]);
+	ImGui::Text("r3:  %08X", GBA->cpu.reg.R[3]);
+	ImGui::Text("r4:  %08X", GBA->cpu.reg.R[4]);
+	ImGui::Text("r5:  %08X", GBA->cpu.reg.R[5]);
+	ImGui::Text("r6:  %08X", GBA->cpu.reg.R[6]);
+	ImGui::Text("r7:  %08X", GBA->cpu.reg.R[7]);
+	ImGui::Text("r8:  %08X", GBA->cpu.reg.R[8]);
+	ImGui::Text("r9:  %08X", GBA->cpu.reg.R[9]);
+	ImGui::Text("r10: %08X", GBA->cpu.reg.R[10]);
+	ImGui::Text("r11: %08X", GBA->cpu.reg.R[11]);
+	ImGui::Text("r12: %08X", GBA->cpu.reg.R[12]);
+	ImGui::Text("r13: %08X", GBA->cpu.reg.R[13]);
+	ImGui::Text("r14: %08X", GBA->cpu.reg.R[14]);
+	ImGui::Text("r15: %08X", GBA->cpu.reg.R[15]);
+	ImGui::Text("CPSR: %08X", GBA->cpu.reg.CPSR);
 
 	ImGui::Spacing();
-	bool imeTmp = GBA.cpu.IME;
+	bool imeTmp = GBA->cpu.IME;
 	ImGui::Checkbox("IME", &imeTmp);
 	ImGui::SameLine();
-	ImGui::Text("IE: %04X", GBA.cpu.IE);
+	ImGui::Text("IE: %04X", GBA->cpu.IE);
 	ImGui::SameLine();
-	ImGui::Text("IF: %04X", GBA.cpu.IF);
+	ImGui::Text("IF: %04X", GBA->cpu.IF);
 
 	ImGui::Spacing();
 	if (ImGui::Button("Show System Log"))
@@ -539,24 +542,24 @@ void systemLogWindow() {
 	ImGui::SetNextWindowSize(ImVec2(700, 600), ImGuiCond_FirstUseEver);
 	ImGui::Begin("System Log", &showSystemLog);
 
-	ImGui::Checkbox("Trace Instructions", (bool *)&GBA.cpu.traceInstructions);
+	ImGui::Checkbox("Trace Instructions", (bool *)&GBA->cpu.traceInstructions);
 	ImGui::SameLine();
-	ImGui::Checkbox("Log Interrupts", (bool *)&GBA.cpu.logInterrupts);
+	ImGui::Checkbox("Log Interrupts", (bool *)&GBA->cpu.logInterrupts);
 	ImGui::SameLine();
-	ImGui::Checkbox("Log Flash Commands", (bool *)&GBA.logFlash);
+	ImGui::Checkbox("Log Flash Commands", (bool *)&GBA->logFlash);
 	ImGui::SameLine();
-	ImGui::Checkbox("Log DMAs", (bool *)&GBA.dma.logDma);
+	ImGui::Checkbox("Log DMAs", (bool *)&GBA->dma.logDma);
 
 	ImGui::Spacing();
 	ImGui::Checkbox("Auto-scroll", &shouldAutoscroll);
 	ImGui::SameLine();
 	if (ImGui::Button("Clear Log")) {
-		GBA.cpu.addThreadEvent(GBACPU::CLEAR_LOG);
+		GBA->cpu.addThreadEvent(GBACPU::CLEAR_LOG);
 	}
 	ImGui::SameLine();
 	if (ImGui::Button("Save Log")) {
 		std::ofstream logFileStream{"log", std::ios::trunc};
-		logFileStream << GBA.log.str();
+		logFileStream << GBA->log.str();
 		logFileStream.close();
 	}
 
@@ -576,7 +579,7 @@ void systemLogWindow() {
 
 	if (ImGui::TreeNode("Log")) {
 		ImGui::BeginChild("Debug CPU", ImVec2(0, 0), false, ImGuiWindowFlags_HorizontalScrollbar);
-		ImGui::TextUnformatted(GBA.log.str().c_str());
+		ImGui::TextUnformatted(GBA->log.str().c_str());
 		if (shouldAutoscroll)
 			ImGui::SetScrollHereY(1.0f);
 		ImGui::EndChild();
@@ -654,11 +657,11 @@ void memEditorWindow() {
 }
 
 ImU8 memEditorRead(const ImU8* data, size_t off) {
-	return GBA.readDebug((u32)off);
+	return GBA->readDebug((u32)off);
 }
 
 void memEditorWrite(ImU8* data, size_t off, ImU8 d) {
-	GBA.writeDebug((u32)off, d, memEditorUnrestrictedWrites);
+	GBA->writeDebug((u32)off, d, memEditorUnrestrictedWrites);
 }
 
 bool memEditorHighlight(const ImU8* data, size_t off) {
