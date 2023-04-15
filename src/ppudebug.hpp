@@ -7,7 +7,7 @@
 #include "types.hpp"
 #include "gba.hpp"
 
-extern GameBoyAdvance GBA;
+extern GameBoyAdvance* GBA;
 
 void initPpuDebug();
 

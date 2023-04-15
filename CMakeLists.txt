@@ -15,8 +15,8 @@ add_executable(gbaemu_cpp
         3rd_party/imgui/imgui_tables.cpp
         3rd_party/imgui/imgui_widgets.cpp
 
-#        src/ppudebug.hpp
-#        src/ppudebug.cpp
+        src/ppudebug.hpp
+        src/ppudebug.cpp
         src/main.cpp
         )
 target_include_directories(gbaemu_cpp PRIVATE
@@ -24,7 +24,7 @@ target_include_directories(gbaemu_cpp PRIVATE
         3rd_party/imgui
         3rd_party/imgui_club/imgui_memory_editor
         )
-target_compile_definitions(gbaemu_cpp PRIVATE "BUILD_WITH_PPUDEBUG=0")
+target_compile_definitions(gbaemu_cpp PRIVATE "BUILD_WITH_PPUDEBUG=1")
 target_link_libraries(gbaemu_cpp ecnavda-yobemag nfd)
 
 if (${CMAKE_SYSTEM_NAME} STREQUAL "Windows")

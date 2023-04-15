@@ -327,6 +327,7 @@ int main(int argc, char *argv[]) {
     desc.logger.func = slog_func;
     sapp_run(desc);
 
+    GBA->save();
     emuThread.detach();
 
 	return 0;
