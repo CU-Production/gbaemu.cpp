@@ -8,7 +8,7 @@ add_subdirectory(3rd_party/ecnavdA-yoBemaG)
 
 add_subdirectory(3rd_party/nativefiledialog-extended)
 
-add_executable(gbaemu_cpp
+set(GBAEMU_SRC
         3rd_party/imgui/imgui.cpp
         3rd_party/imgui/imgui_demo.cpp
         3rd_party/imgui/imgui_draw.cpp
@@ -17,8 +17,13 @@ add_executable(gbaemu_cpp
 
         src/ppudebug.hpp
         src/ppudebug.cpp
-        src/main.cpp
-        )
+        src/main.cpp)
+
+if(WIN32)
+    add_executable(gbaemu_cpp WIN32 ${GBAEMU_SRC})
+else()
+    add_executable(gbaemu_cpp ${GBAEMU_SRC})
+endif()
 target_include_directories(gbaemu_cpp PRIVATE
         3rd_party/sokol
         3rd_party/imgui

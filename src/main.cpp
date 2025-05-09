@@ -265,7 +265,12 @@ void input(const sapp_event* event) {
 }
 
 
-int main(int argc, char *argv[]) {
+#if WIN32
+int APIENTRY WinMain(HINSTANCE hInst, HINSTANCE hInstPrev, PSTR cmdline, int cmdshow)
+#else
+int main(int __argc, char **__argv)
+#endif
+{
     GBA = new GameBoyAdvance();
     emuThread = std::thread(&GBACPU::run, std::ref(GBA->cpu));
 
@@ -273,30 +278,30 @@ int main(int argc, char *argv[]) {
 	argRomGiven = false;
 	argBiosGiven = false;
 	argBiosFilePath = "";
-	for (int i = 1; i < argc; i++) {
-		switch (cexprHash(argv[i])) {
+	for (int i = 1; i < __argc; i++) {
+		switch (cexprHash(__argv[i])) {
 		case cexprHash("--rom"):
-			if (argc == (++i)) {
+			if (__argc == (++i)) {
 				printf("Not enough arguments for flag --rom\n");
 				return -1;
 			}
 			argRomGiven = true;
-			argRomFilePath = argv[i];
+			argRomFilePath = __argv[i];
 			break;
 		case cexprHash("--bios"):
-			if (argc == ++i) {
+			if (__argc == ++i) {
 				printf("Not enough arguments for flag --bios\n");
 				return -1;
 			}
 			argBiosGiven = true;
-			argBiosFilePath = argv[i];
+			argBiosFilePath = __argv[i];
 			break;
 		default:
 			if (i == 1) {
 				argRomGiven = true;
-				argRomFilePath = argv[i];
+				argRomFilePath = __argv[i];
 			} else {
-				printf("Unknown argument:  %s\n", argv[i]);
+				printf("Unknown argument:  %s\n", __argv[i]);
 				return -1;
 			}
 			break;
